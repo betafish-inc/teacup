@@ -49,6 +49,19 @@ Run the following on separate terminal sessions:
 
 > Note: nsq creates topics on demand and nsqlookupd will propagate the queue information to subscribers. If the queue doesn't exist, there may be harmless error messages from subscribers (indicating the topic can't be found). It is normal for a short delay (typically 1-2 seconds) between the initial message posted to a topic and for subscribers to receive the first message. Please read the [nsq docs](https://nsq.io) for more details.
 
+This can be tiresome to run manually. Running `screen` or `tmux` via a shell script can make launching and monitoring these services locally simpler (a [tmux](https://github.com/tmux/tmux/wiki) example below - save to a shell script to make it easier to reuse):
+
+```bash
+tmux \
+  new-session 'redis-server' \; \
+  split-window 'nsqlookupd' \; \
+  split-window -h 'nsqd --nsqlookupd-tcp-addr localhost:4160' \; \
+  split-window 'nsqadmin --nsqlookupd-tcp-addr localhost:4160' \; \
+  detach-client
+```
+
+Then simply, `tmux attach` to view the services and `Ctrl+b` and `d` to detach again.
+
 ## NSQ
 
 The [nsq](https://nsq.io) message queue requires two services to be running: nsqlookupd and nsqd. 
