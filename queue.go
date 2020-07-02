@@ -2,143 +2,74 @@ package teacup
 
 import (
 	"context"
-	"net"
-	"os"
-	"strconv"
-	"time"
+	"log"
 
-	"github.com/nsqio/go-nsq"
+	"github.com/nats-io/nats.go"
 )
 
 // Queue abstracts the underlying message queue from microservices. We will use nsq for "native" deployments
 // but want to have the freedom of easily using a platform provided queue service if available.
 type Queue struct {
 	subs      []Subscriber
-	nsqConfig *nsq.Config
+	Client   *nats.Conn
 	t         *Teacup
 	producer  *Producer
 }
 
 // Sub to an event topic and channel. The returned CancelFunc can be used to cancel the subscription.
-func (q *Queue) Sub(ctx context.Context, topic, channel string, sub Subscriber) (CancelFunc, error) {
+func (q *Queue) Sub(ctx context.Context, topic, channel string, sub Subscriber) {
 	q.subs = append(q.subs, sub)
-	consumer, err := nsq.NewConsumer(topic, channel, q.config())
-	if err != nil {
-		return nil, err
-	}
-	consumer.SetLoggerLevel(nsq.LogLevelError)
-	consumer.AddHandler(nsq.HandlerFunc(func(msg *nsq.Message) error {
-		// TODO might be useful to have a setting to automatically ignore empty messages?
-		// TODO might be useful to support automatically JSON decoding messages for subscribers?
-
-		// Returning a non-nil error will automatically send a REQ command to NSQ to re-queue the message.
-		ctx := context.Background()
-		return sub.Message(ctx, q.t, topic, channel, msg.Body)
-	}))
-	// Find nsqlookupd location(s)
-	var addresses []string
-	addr, ok := os.LookupEnv("NSQLOOKUPD_ADDR")
-	if ok {
-		addresses = append(addresses, addr)
-	} else {
-		// Try Consul using DNS
-		resolver := net.Resolver{}
-		_, services, err := resolver.LookupSRV(ctx, "", "", "nsqlookupd.service.consul")
-		if err != nil || len(services) == 0 {
-			// Try Consul by accessing the API
-			// TODO actually use Consul to lookup the service
-			// return errors.New("nsqlookupd not configured")
-			addresses = append(addresses, "localhost:4161")
-		} else {
-			for i := range services {
-				addresses = append(addresses, services[i].Target+":"+strconv.Itoa(int(services[i].Port)))
-			}
-		}
-	}
-	err = consumer.ConnectToNSQLookupds(addresses)
-	return func() { consumer.Stop() }, err
+	// TODO is there anything we can do with the error
+	_, _ = q.client(ctx).QueueSubscribe(topic, channel, func(msg *nats.Msg) {
+		// TODO is there anything we can do with this error
+		_ = sub.Message(q.t.Context(), q.t, topic, channel, msg.Data)
+	})
 }
 
 // Producer provides a Producer ready for sending messages to queues.
-func (q *Queue) Producer(ctx context.Context) (*Producer, error) {
+func (q *Queue) Producer(ctx context.Context) *Producer {
 	if q.producer != nil {
-		return q.producer, nil
+		return q.producer
 	}
-	producer, err := nsq.NewProducer(q.t.ServiceAddr(ctx, "nsqd", 4150), q.config())
-	if err == nil {
-		q.producer = &Producer{producer: producer}
-	}
-	return q.producer, err
+	q.producer = &Producer{client: q.client(ctx)}
+	return q.producer
 }
 
-// config returns the configuration to use for creating consumers or producers.
-func (q *Queue) config() *nsq.Config {
-	// TODO need to consider what settings we want to allow to be set. Settings should all automatically pull from Consul
-	if q.nsqConfig == nil {
-		q.nsqConfig = nsq.NewConfig()
+// client returns a valid NATS client connection.
+func (q *Queue) client(ctx context.Context) *nats.Conn {
+	if q.Client == nil {
+		q.t.natsDone = make(chan bool, 1)
+		servers := q.t.ServiceAddrs(ctx, "nats", 4222)
+		addrs := make([]string, len(servers))
+		for i, s := range servers {
+			addrs[i] = "nats://"+s
+		}
+		opts := nats.Options{
+			Servers: addrs,
+			ClosedCB: func(_ *nats.Conn) {
+				q.t.natsDone<-true
+			},
+		}
+		conn, err := opts.Connect()
+		// TODO do something smarter with the error
+		if err != nil {
+			log.Fatal("Could not connect", err)
+		}
+		q.Client = conn
 	}
-	return q.nsqConfig
+	return q.Client
 }
 
 // Producer provides an abstract way to publish messages to queues. It follows the nsq implementation closely
 // and on other platforms, many operations may be NOOPs.
 type Producer struct {
-	producer *nsq.Producer
-}
-
-// Ping causes the Producer to connect to it's configured queue (if not already
-// connected) and send a `noop` command, returning any error that might occur.
-//
-// This method can be used to verify that a newly-created Producer instance is
-// configured correctly, rather than relying on the lazy "connect on Publish"
-// behavior of a Producer.
-func (p *Producer) Ping(_ context.Context) error {
-	return p.producer.Ping()
-}
-
-// Stop initiates a graceful stop of the Producer (permanent)
-//
-// NOTE: this blocks until completion
-func (p *Producer) Stop() {
-	p.producer.Stop()
-}
-
-// PublishAsync publishes a message body to the specified topic
-// but does not wait for the response from the queue.
-func (p *Producer) PublishAsync(_ context.Context, topic string, body []byte) error {
-	return p.producer.PublishAsync(topic, body, nil)
-}
-
-// MultiPublishAsync publishes a slice of message bodies to the specified topic
-// but does not wait for the response from the queue.
-func (p *Producer) MultiPublishAsync(_ context.Context, topic string, body [][]byte) error {
-	return p.producer.MultiPublishAsync(topic, body, nil)
+	client *nats.Conn
 }
 
 // Publish synchronously publishes a message body to the specified topic, returning
 // an error if publish failed
 func (p *Producer) Publish(_ context.Context, topic string, body []byte) error {
-	return p.producer.Publish(topic, body)
-}
-
-// MultiPublish synchronously publishes a slice of message bodies to the specified topic, returning
-// an error if publish failed
-func (p *Producer) MultiPublish(_ context.Context, topic string, body [][]byte) error {
-	return p.producer.MultiPublish(topic, body)
-}
-
-// DeferredPublish synchronously publishes a message body to the specified topic
-// where the message will queue at the channel level until the timeout expires, returning
-// an error if publish failed
-func (p *Producer) DeferredPublish(_ context.Context, topic string, delay time.Duration, body []byte) error {
-	return p.producer.DeferredPublish(topic, delay, body)
-}
-
-// DeferredPublishAsync publishes a message body to the specified topic
-// where the message will queue at the channel level until the timeout expires
-// but does not wait for the response from the queue.
-func (p *Producer) DeferredPublishAsync(topic string, delay time.Duration, body []byte) error {
-	return p.producer.DeferredPublishAsync(topic, delay, body, nil)
+	return p.client.Publish(topic, body)
 }
 
 // Subscriber allows microservices to process queue messages on a topic/channel without dealing directly

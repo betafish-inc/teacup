@@ -2,8 +2,8 @@ package example
 
 import (
 	"context"
+	"log"
 
-	"github.com/apex/log"
 	"github.com/betafish-inc/teacup"
 )
 
@@ -12,7 +12,7 @@ type Hello struct {
 }
 
 func (h *Hello) Start(ctx context.Context, _ *teacup.Teacup) {
-	log.Info("Hello World")
+	log.Println("Hello World")
 	<-ctx.Done() // Wait for the context to close
-	log.Info("Worker is done")
+	log.Println("Worker is done")
 }
