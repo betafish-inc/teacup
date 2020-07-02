@@ -8,7 +8,7 @@ import (
 	"github.com/go-redis/redis/v8"
 )
 
-// Redis returns a redis client ready to use. The first access to Redis will dial the Redis server
+// Redis returns a redis client ready to use. The first call to Redis() will dial the Redis server
 // and the provided context is used to control things like timeouts.
 func (t *Teacup) Redis(ctx context.Context) (*redis.Client, error) {
 	if t.redisClient != nil {
