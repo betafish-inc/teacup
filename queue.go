@@ -22,7 +22,7 @@ func (q *Queue) Sub(ctx context.Context, topic, channel string, sub Subscriber) 
 	// TODO is there anything we can do with the error
 	_, _ = q.client(ctx).QueueSubscribe(topic, channel, func(msg *nats.Msg) {
 		// TODO is there anything we can do with this error
-		_ = sub.Message(q.t.Context(), q.t, topic, channel, msg.Data)
+		_ = sub.Message(context.WithValue(q.t.Context(), "reply", msg.Reply), q.t, topic, channel, msg.Data)
 	})
 }
 
@@ -86,6 +86,18 @@ func (p *Producer) Request(ctx context.Context, topic string, body []byte) ([]by
 // microservices implement Subscriber and Sub to a topic/channel and receive messages as they are ready for processing.
 type Subscriber interface {
 	// Message is called for each received message from the given topic/channel combination.
+	// The "reply" channel subject is added to the context for message handlers that need to respond to
+	// a message queue request.
+	//
+	// TODO make the following an actual go doc example
+	//
+	// Example:
+	//
+	// Message(ctx context.Context, t *Teacup, topic, channel string, msg []byte) error {
+	//   t.Publisher(ctx).Publish(ctx, ctx.Value("reply"), []byte("{\"foo\":\"bar\"}"))
+	// }
+	//
+	//
 	// Errors can be used to force a requeue of the message.
 	// TODO we need better documentation on exactly how errors are used to force requeues (and any other actions)
 	Message(ctx context.Context, t *Teacup, topic, channel string, msg []byte) error
