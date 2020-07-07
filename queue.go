@@ -72,6 +72,15 @@ func (p *Producer) Publish(_ context.Context, topic string, body []byte) error {
 	return p.client.Publish(topic, body)
 }
 
+// Request synchronously publishes a message request to the specified topic and waits for a response.
+func (p *Producer) Request(ctx context.Context, topic string, body []byte) ([]byte, error) {
+	response, err := p.client.RequestWithContext(ctx, topic, body)
+	if err != nil {
+		return nil, err
+	}
+	return response.Data, nil
+}
+
 // Subscriber allows microservices to process queue messages on a topic/channel without dealing directly
 // with the underlying message queue (including all it's various settings and configuration options). Instead,
 // microservices implement Subscriber and Sub to a topic/channel and receive messages as they are ready for processing.
