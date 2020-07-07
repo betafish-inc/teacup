@@ -2,6 +2,19 @@
 
 Teacup provides tooling for quickly building microservices that operate in a consistent, managed environment.
 
+## Workflow
+
+To create a new Teacup microservice the normal work flow involves:
+
+1. Create a new git repo.
+2. Run `go mod init` in project root
+3. Run `go get github.com/betafish-inc/teacup` to add the teacup dependency.
+4. Create go launcher in `_apps/service/main.go` - using a standard naming allows tools to automatically build.
+5. If using GitHub, add a GitHub Actions Workflow in `.github/workflows/teacup.yaml` using the template from `_apps/tools/teacup/teacup.yaml`.
+6. Implement your service in service specific go packages in the project.
+
+> TODO it would be nice to add a tool as part of the Teacup project to automate the lion's share of these tasks. e.g. `teacup init`.
+
 ## Building
 
 Install [Go](https://golang.org) and in the project root run `go get -v -t -d ./...` to fetch all go dependencies.
@@ -11,8 +24,6 @@ Typical Go development process:
 * Unit tests: `go test`
 * Run: `go run _apps/subscriber/main.go`
 * Build: `go build -o dist/subscriber _apps/subscriber/main.go`
-
-TODO unpin vault go.mod (and use normal versioning) once Vault API has updated its module support. Pinned using https://github.com/hashicorp/vault/issues/9072 to commit.
 
 ## Runtime Environment
 
