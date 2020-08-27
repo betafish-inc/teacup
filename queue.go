@@ -10,10 +10,10 @@ import (
 // Queue abstracts the underlying message queue from microservices. We will use nsq for "native" deployments
 // but want to have the freedom of easily using a platform provided queue service if available.
 type Queue struct {
-	subs      []Subscriber
+	subs     []Subscriber
 	Client   *nats.Conn
-	t         *Teacup
-	producer  *Producer
+	t        *Teacup
+	producer *Producer
 }
 
 // Sub to an event topic and channel. The returned CancelFunc can be used to cancel the subscription.
@@ -44,12 +44,12 @@ func (q *Queue) client(ctx context.Context) *nats.Conn {
 		servers := q.t.ServiceAddrs(ctx, "nats", 4222)
 		addrs := make([]string, len(servers))
 		for i, s := range servers {
-			addrs[i] = "nats://"+s
+			addrs[i] = "nats://" + s
 		}
 		opts := nats.Options{
 			Servers: addrs,
 			ClosedCB: func(_ *nats.Conn) {
-				q.t.natsDone<-true
+				q.t.natsDone <- true
 			},
 		}
 		conn, err := opts.Connect()
