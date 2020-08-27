@@ -22,7 +22,9 @@ func (q *Queue) Sub(ctx context.Context, topic, channel string, sub Subscriber) 
 	// TODO is there anything we can do with the error
 	_, _ = q.client(ctx).QueueSubscribe(topic, channel, func(msg *nats.Msg) {
 		// TODO is there anything we can do with this error
-		_ = sub.Message(context.WithValue(q.t.Context(), "reply", msg.Reply), q.t, topic, channel, msg.Data)
+		thisCtx := context.WithValue(q.t.Context(), "reply", msg.Reply)
+		thisCtx = context.WithValue(thisCtx, "subject", msg.Subject)
+		_ = sub.Message(thisCtx, q.t, topic, channel, msg.Data)
 	})
 }
 
