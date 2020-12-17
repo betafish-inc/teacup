@@ -3,6 +3,7 @@ package teacup
 import (
 	"context"
 	"fmt"
+	"io/ioutil"
 	"net"
 	"os"
 	"os/signal"
@@ -97,7 +98,13 @@ func (t *Teacup) Secret(_ context.Context, key string) (string, error) {
 	}
 
 	// TODO implement Vault fallback
-	return "", nil
+
+	// Check for a mounted Docker Secret.
+	buf, err := ioutil.ReadFile(fmt.Sprintf("/run/secrets/%s", key))
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimRight(string(buf), "\r\n"), nil
 }
 
 // ServiceAddr searches for a service address `name` by checking for:
