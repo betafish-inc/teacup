@@ -89,3 +89,18 @@ The default is no password, and database `0`.
 ## PostgreSQL
 
 TBD
+
+## Generating Mocks
+
+Using Mockery:
+
+Install mockery https://github.com/vektra/mockery
+https://github.com/vektra/mockery#installation
+
+
+From the root folder run:
+```
+mockery --name=ITeacup
+```
+
+Check the `mocks` folder output.

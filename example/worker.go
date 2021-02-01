@@ -11,7 +11,7 @@ import (
 type Hello struct {
 }
 
-func (h *Hello) Start(ctx context.Context, _ *teacup.Teacup) {
+func (h *Hello) Start(ctx context.Context, _ teacup.ITeacup) {
 	log.Println("Hello World")
 	<-ctx.Done() // Wait for the context to close
 	log.Println("Worker is done")

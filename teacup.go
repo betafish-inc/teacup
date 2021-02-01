@@ -14,59 +14,99 @@ import (
 	"github.com/go-redis/redis/v8"
 ) //https://redis.uptrace.dev
 
+// ITeacup is a Teacup interface.
+type ITeacup interface {
+	Register(worker IWorker)
+	Context() context.Context
+	Option(ctx context.Context, key string) (string, error)
+	Secret(ctx context.Context, key string) (string, error)
+	ServiceAddr(ctx context.Context, name string, port int) string
+	ServiceAddrs(ctx context.Context, name string, port int) []string
+	Start()
+	Stop()
+	Redis(ctx context.Context) (*redis.Client, error)
+	Queue() IQueue
+}
+
 // Teacup provides essential tools for writing microservices with minimum boilerplate. Create an empty
 // Teacup and then register at least one Worker or Sub then call Teacup.Start() to begin running.
 type Teacup struct {
-	workers      []*WorkerReg
-	redisClient  *redis.Client
-	natsDone 	 chan bool
-	done chan bool
-	context      context.Context
-	cancel       context.CancelFunc
-	queue *Queue
+	workers     []IWorkerReg
+	redisClient *redis.Client
+	natsDone    chan bool
+	done        chan bool
+	context     context.Context
+	cancel      context.CancelFunc
+	queue       IQueue
 }
 
 // NewTeacup creates a new Teacup instance ready for use.
-func NewTeacup() *Teacup {
+func NewTeacup() ITeacup {
 	return &Teacup{}
 }
 
 // Queue returns a queue helper for interacting with the message bus.
-func (t *Teacup) Queue() *Queue {
+func (t *Teacup) Queue() IQueue {
 	if t.queue == nil {
-		t.queue = &Queue{t:t}
+		t.queue = &Queue{t: t}
 	}
 	return t.queue
 }
 
-// Worker allows microservices to run "forever" without having to worry about initializing an environment
+// IWorker allows microservices to run "forever" without having to worry about initializing an environment
 // or properly responding to system inputs. The worker should watch the context done channel to know when
 // to terminate.
-type Worker interface {
+type IWorker interface {
 	// Start the Worker and run until the provided context's done channel is closed. The provided Teacup
 	// reference can be used to access other Teacup managed services.
-	Start(ctx context.Context, t *Teacup)
+	Start(ctx context.Context, t ITeacup)
 }
 
 // The WorkerFunc type is an adapter to allow ordinary functions to act as Workers.
 // If f is a function with the appropriate signature, WorkerFunc(f) is a Worker that calls f.
-type WorkerFunc func(ctx context.Context, t *Teacup)
+type WorkerFunc func(ctx context.Context, t ITeacup)
 
 // Start calls f(ctx, t).
-func (f WorkerFunc) Start(ctx context.Context, t *Teacup) {
+func (f WorkerFunc) Start(ctx context.Context, t ITeacup) {
 	f(ctx, t)
+}
+
+// IWorkerReg contains information about a Worker registration with Teacup.
+type IWorkerReg interface {
+	// New(worker Worker) IWorkerReg
+	Worker() IWorker
+	Start(ctx context.Context, t ITeacup)
+	RegisterCancelFunc(context.CancelFunc)
 }
 
 // WorkerReg contains information about a Worker registration with Teacup.
 type WorkerReg struct {
-	Worker Worker
+	worker IWorker
 	cancel context.CancelFunc
+}
+
+// RegisterCancelFunc registers cancelfunc @cf to worker @w.
+func (w *WorkerReg) RegisterCancelFunc(cf context.CancelFunc) {
+	w.cancel = cf
+}
+
+// Worker returns a new WorkerReg for worker @wkrr.
+func (w *WorkerReg) Worker() IWorker {
+	return w.worker
+	// TODO -- starting worker
+	// return &WorkerReg{Worker: wrkr}
+}
+
+// Start returns a new WorkerReg for worker @wkrr.
+func (w *WorkerReg) Start(ctx context.Context, t ITeacup) {
+	// TODO -- starting worker
+	// return &WorkerReg{Worker: wrkr}
 }
 
 // Register a worker for running. THe Worker's Start() method will be called some time after the Teacup.Start() method
 // is called and should not return unless the provided context is done or a fatal error occurs.
-func (t *Teacup) Register(worker Worker) {
-	t.workers = append(t.workers, &WorkerReg{Worker:worker})
+func (t *Teacup) Register(w IWorker) {
+	t.workers = append(t.workers, &WorkerReg{worker: w})
 }
 
 // Context returns the context associated with the main Teacup goroutine.
@@ -131,7 +171,6 @@ func (t *Teacup) ServiceAddr(ctx context.Context, name string, port int) string 
 	return fmt.Sprintf("localhost:%d", port)
 }
 
-
 // ServiceAddr searches for a service address `name` by checking for:
 //
 // * `NAME_ADDR` - an environmental variable containing comma separated host:port pairs.
@@ -146,7 +185,7 @@ func (t *Teacup) ServiceAddrs(ctx context.Context, name string, port int) []stri
 	resolver := net.Resolver{}
 	_, addresses, err := resolver.LookupSRV(ctx, "", "", fmt.Sprintf("%s.service.consul", name))
 	if err == nil && len(addresses) > 0 {
-		found:=make([]string, len(addresses))
+		found := make([]string, len(addresses))
 		for i, a := range addresses {
 			found[i] = a.Target + ":" + strconv.Itoa(int(a.Port))
 		}
@@ -154,7 +193,7 @@ func (t *Teacup) ServiceAddrs(ctx context.Context, name string, port int) []stri
 	}
 	_, addresses, err = resolver.LookupSRV(ctx, "", "", fmt.Sprintf("%s.local", name))
 	if err == nil && len(addresses) > 0 {
-		found:=make([]string, len(addresses))
+		found := make([]string, len(addresses))
 		for i, a := range addresses {
 			found[i] = a.Target + ":" + strconv.Itoa(int(a.Port))
 		}
@@ -170,8 +209,8 @@ func (t *Teacup) Start() {
 	ctx := t.Context()
 	for _, reg := range t.workers {
 		sub, cancelFunc := context.WithCancel(ctx)
-		reg.cancel = cancelFunc
-		go reg.Worker.Start(sub, t)
+		reg.RegisterCancelFunc(cancelFunc)
+		go reg.Worker().Start(sub, t)
 	}
 
 	signals := make(chan os.Signal, 1)
@@ -190,7 +229,7 @@ func (t *Teacup) Stop() {
 	t.cancel() // cancel the context and all child context which should stop all the workers
 	// TODO how can we wait for all the workers to finish shutting down?
 	if t.queue != nil {
-		_ = t.queue.Client.Drain()
+		_ = t.queue.Drain()
 		<-t.natsDone // Wait for client to drain (should probably put a limit on this so we don't wait forever)
 	}
 	t.done <- true // allow main to terminate

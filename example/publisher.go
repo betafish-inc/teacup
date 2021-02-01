@@ -10,7 +10,7 @@ import (
 type Pub struct {
 }
 
-func (p *Pub) Start(ctx context.Context, t *teacup.Teacup) {
+func (p *Pub) Start(ctx context.Context, t teacup.ITeacup) {
 	defer t.Stop()
 	_ = t.Queue().Producer(ctx).Publish(ctx, "example", []byte("hello"))
- }
+}

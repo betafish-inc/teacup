@@ -15,7 +15,7 @@ type Echo struct {
 }
 
 // Message handles incoming messages by printing them to stdout.
-func (e *Echo) Message(_ context.Context, _ *teacup.Teacup, topic, channel string, msg []byte) error {
+func (e *Echo) Message(_ context.Context, _ teacup.ITeacup, topic, channel string, msg []byte) error {
 
 	if e.MessagesAreBinary {
 		log.Println("topic:", topic, "channel:", channel, "data:", hex.Dump(msg))
